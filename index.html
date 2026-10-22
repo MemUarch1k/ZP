@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Siege of the Sun - Prototype</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none; /* Запрет выделения текста */
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Клики проходят сквозь UI к канвасу, если нужно */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .top-bar {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .stat-box {
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 18px;
+            border: 2px solid rgba(255, 165, 0, 0.5);
+            text-shadow: 1px 1px 2px black;
+        }
+
+        .hp-container {
+            width: 300px;
+            height: 20px;
+            background: #333;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 2px solid #fff;
+        }
+
+        #hp-fill {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, #ff4d4d, #ff0000);
+            transition: width 0.2s ease-out;
+        }
+
+        #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none; /* Скрыто по умолчанию */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 10;
+            pointer-events: auto;
+        }
+
+        h1 {
+            font-size: 4rem;
+            color: #ffa500;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+        }
+
+        button.restart-btn {
+            padding: 15px 40px;
+            font-size: 24px;
+            background: #ffa500;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            color: #000;
+            font-weight: bold;
+            transition: transform 0.1s;
+        }
+
+        button.restart-btn:hover {
+            transform: scale(1.05);
+            background: #ffb733;
+        }
+
+        /* Инструкция */
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 14px;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Игровой Канвас -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Интерфейс -->
+    <div id="ui-layer">
+        <div class="top-bar">
+            <div class="stat-box">HP: <span id="hp-text">100%</span></div>
+            <div class="hp-container"><div id="hp-fill"></div></div>
+            <div class="stat-box">Gold: <span id="gold-text">0</span></div>
+        </div>
+        <div id="instructions">
+            Зомби атакуют повозку.<br>Защити Короля!
+        </div>
+    </div>
+
+    <!-- Экран поражения -->
+    <div id="game-over-screen">
+        <h1>Game Over</h1>
+        <p style="font-size: 1.5rem; margin-bottom: 30px;">Повозка разрушена...</p>
+        <button class="restart-btn" onclick="resetGame()">Начать заново</button>
+    </div>
+
+<script>
+/**
+ * SIEGE OF THE SUN - PROTOTYPE V1
+ * Genre: Tower Defense Runner / Idle Siege
+ * Tech: Vanilla JS + HTML5 Canvas
+ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// UI Elements
+const hpFill = document.getElementById('hp-fill');
+const hpText = document.getElementById('hp-text');
+const goldText = document.getElementById('gold-text');
+const gameOverScreen = document.getElementById('game-over-screen');
+
+// Game State
+let gameState = {
+    isRunning: true,
+    score: 0, // Distance traveled
+    gold: 0,
+    towerHP: 100,
+    maxTowerHP: 100,
+    speed: 2, // Base scroll speed
+    frameCount: 0
+};
+
+// Dimensions
+let width, height;
+
+function resize() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- ASSETS & DRAWING HELPERS ---
+
+// Colors
+const COLORS = {
+    skyTop: '#4a0e0e',       // Dark red/purple horizon start
+    skyMid: '#ff4500',       // Orange Red
+    skyBottom: '#ffd700',    // Gold/Yellow near sun
+    mountainFar: '#5c2e2e',  // Dark brownish purple
+    mountainNear: '#3e1f1f', // Even darker
+    ground: '#d2b48c',       // Sand/Tan
+    grass: '#8b4513',        // Dry scrub
+    towerWood: '#8B4513',    // Brown wood
+    towerDark: '#5D3A1F',    // Shadowed wood
+    zombieSkin: '#556B2F',   // Olive green
+    zombieCloth: '#2F4F4F',  // Dark slate gray
+    horseBody: '#3E2723',    // Dark brown
+    sunColor: '#FFFACD'      // Lemon Chiffon
+};
+
+// Helper to draw rounded rectangles
+function roundRect(ctx, x, y, w, h, r) {
+    if (w < 2 * r) r = w / 2;
+    if (h < 2 * r) r = h / 2;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// --- CLASSES ---
+
+class BackgroundLayer {
+    constructor(type, speedMultiplier, yOffset) {
+        this.type = type; // 'mountains', 'ground', 'decor'
+        this.speedMult = speedMultiplier;
+        this.yOffset = yOffset; // Vertical position relative to horizon
+        this.items = [];
+        this.generateItems();
+    }
+
+    generateItems() {
+        const count = Math.ceil(width / 200) + 2; // Enough items to cover screen
+        
+        for (let i = 0; i < count; i++) {
+            let item = {};
+            
+            if (this.type === 'mountains') {
+                item.x = i * (width / count) + Math.random() * 100;
+                item.w = 300 + Math.random() * 200;
+                item.h = 100 + Math.random() * 150;
+                item.color = this.speedMult < 0.5 ? COLORS.mountainFar : COLORS.mountainNear;
+            } else if (this.type === 'decor') {
+                // Cacti or Rocks
+                item.x = i * (width / count) + Math.random() * 50;
+                item.type = Math.random() > 0.7 ? 'rock' : 'cactus';
+                item.size = 20 + Math.random() * 30;
+            }
+            
+            this.items.push(item);
+        }
+    }
+
+    update(deltaX) {
+        // Move items left based on game speed and layer multiplier
+        const moveAmount = deltaX * this.speedMult;
+        
+        this.items.forEach(item => {
+            item.x -= moveAmount;
+            
+            // Recycle items that go off screen
+            if (item.x + (item.w || item.size) < 0) {
+                item.x = width + Math.random() * 100;
+                
+                // Regenerate properties for variety
+                if (this.type === 'mountains') {
+                    item.w = 300 + Math.random() * 200;
+                    item.h = 100 + Math.random() * 150;
+                } else if (this.type === 'decor') {
+                    item.type = Math.random() > 0.7 ? 'rock' : 'cactus';
+                    item.size = 20 + Math.random() * 30;
+                }
+            }
+        });
+    }
+
+    draw(ctx, horizonY) {
+        if (this.type === 'mountains') {
+            ctx.fillStyle = this.items[0].color; // Assume same color for simplicity in batch
+            this.items.forEach(item => {
+                // Draw simple triangle/mound shape
+                ctx.beginPath();
+                ctx.moveTo(item.x, horizonY);
+                ctx.lineTo(item.x + item.w / 2, horizonY - item.h);
+                ctx.lineTo(item.x + item.w, horizonY);
+                ctx.fill();
+            });
+        } else if (this.type === 'decor') {
+            this.items.forEach(item => {
+                if (item.type === 'cactus') {
+                    ctx.fillStyle = '#2E8B57'; // Sea Green
+                    // Main stem
+                    ctx.fillRect(item.x, horizonY - item.size, item.size/3, item.size);
+                    // Arms
+                    ctx.fillRect(item.x - item.size/3, horizonY - item.size*0.6, item.size/3, item.size/2);
+                    ctx.fillRect(item.x + item.size/3, horizonY - item.size*0.7, item.size/3, item.size/2);
+                } else {
+                    ctx.fillStyle = '#696969'; // Dim Gray
+                    ctx.beginPath();
+                    ctx.arc(item.x + item.size/2, horizonY - item.size/4, item.size/2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+        }
+    }
+}
+
+class Zombie {
+    constructor(startX, startY) {
+        this.x = startX;
+        this.y = startY;
+        this.width = 30;
+        this.height = 50;
+        this.speed = 1.5 + Math.random() * 1.5; // Random walk speed
+        this.hp = 10;
+        this.maxHp = 10;
+        this.animFrame = 0;
+        this.dead = false;
+        this.goldDrop = 5 + Math.floor(Math.random() * 5);
+    }
+
+    update(towerX, towerWidth) {
+        if (this.dead) return;
+
+        // Move towards tower
+        this.x -= this.speed;
+
+        // Check collision with tower
+        // Tower is roughly centered horizontally in our logic later, 
+        // but here we assume tower occupies a zone [towerLeft, towerRight]
+        // For prototype, let's say tower hits when zombie reaches specific X
+        
+        // Simple hitbox check against a vertical line representing the wall
+        if (this.x <= towerX && !this.dead) {
+            // Attack animation could go here
+            // Deal damage to tower
+            gameState.towerHP -= 1; // Small chip damage per tick/contact
+            updateUI();
+            
+            // Push back slightly so they don't stack instantly inside
+            this.x += 5; 
+            
+            // Visual feedback: flash red?
+        }
+    }
+
+    draw(ctx) {
+        if (this.dead) return;
+
+        // Body
+        ctx.fillStyle = COLORS.zombieCloth;
+        ctx.fillRect(this.x, this.y - this.height, this.width, this.height);
+
+        // Head
+        ctx.fillStyle = COLORS.zombieSkin;
+        ctx.beginPath();
+        ctx.arc(this.x + this.width/2, this.y - this.height - 10, 12, 0, Math.PI*2);
+        ctx.fill();
+
+        // Eyes (angry)
+        ctx.fillStyle = 'red';
+        ctx.fillRect(this.x + 8, this.y - this.height - 15, 4, 4);
+        ctx.fillRect(this.x + 18, this.y - this.height - 15, 4, 4);
+
+        // Health bar above head
+        const hpPercent = this.hp / this.maxHp;
+        ctx.fillStyle = 'black';
+        ctx.fillRect(this.x, this.y - this.height - 25, this.width, 4);
+        ctx.fillStyle = 'green';
+        ctx.fillRect(this.x, this.y - this.height - 25, this.width * hpPercent, 4);
+    }
+}
+
+class Horse {
+    constructor(offsetFromTowerFront) {
+        this.offset = offsetFromTowerFront;
+        this.frame = 0;
+    }
+
+    update() {
+        this.frame++;
+    }
+
+    draw(ctx, baseX, baseY) {
+        // Simple stick-figure-ish horse silhouette running
+        const legSwing = Math.sin(this.frame * 0.2) * 10;
+        const bobbing = Math.abs(Math.cos(this.frame * 0.2)) * 5;
+
+        ctx.save();
+        ctx.translate(baseX + this.offset, baseY - bobbing);
+        
+        ctx.fillStyle = COLORS.horseBody;
+        
+        // Body
+        ctx.beginPath();
+        ctx.ellipse(0, -20, 40, 20, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Legs (animated)
+        ctx.strokeStyle = COLORS.horseBody;
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        
+        // Front Left
+        ctx.beginPath(); ctx.moveTo(-20, -10); ctx.lineTo(-25 + legSwing, 20); ctx.stroke();
+        // Front Right
+        ctx.beginPath(); ctx.moveTo(-10, -10); ctx.lineTo(-5 - legSwing, 20); ctx.stroke();
+        // Back Left
+        ctx.beginPath(); ctx.moveTo(20, -10); ctx.lineTo(15 - legSwing, 20); ctx.stroke();
+        // Back Right
+        ctx.beginPath(); ctx.moveTo(30, -10); ctx.lineTo(35 + legSwing, 20); ctx.stroke();
+
+        // Neck & Head
+        ctx.beginPath();
+        ctx.moveTo(-30, -20);
+        ctx.quadraticCurveTo(-50, -40, -60, -30); // Neck curve
+        ctx.lineTo(-70, -20); // Nose
+        ctx.lineTo(-60, -10); // Jaw
+        ctx.closePath();
+        ctx.fill();
+
+        // Tail
+        ctx.beginPath();
+        ctx.moveTo(40, -20);
+        ctx.quadraticCurveTo(60, -10 + legSwing/2, 50, 10);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+}
+
+class Tower {
+    constructor() {
+        this.width = 120;
+        this.height = 180;
+        this.x = width / 2 - this.width / 2; // Centered initially
+        this.y = height - 100; // Ground level approximation
+        this.wheelRotation = 0;
+    }
+
+    update(scrollSpeed) {
+        // Keep tower visually stationary while world moves
+        // But wheels rotate based on speed
+        this.wheelRotation += scrollSpeed * 0.1;
+    }
+
+    draw(ctx) {
+        const tx = this.x;
+        const ty = this.y;
+
+        // Wheels
+        ctx.fillStyle = '#333';
+        const wheelRadius = 25;
+        const wheelY = ty + this.height - 10;
+        
+        // Left Wheel
+        ctx.beginPath();
+        ctx.arc(tx + 20, wheelY, wheelRadius, 0, Math.PI * 2);
+        ctx.fill();
+        // Spokes
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 3;
+        for(let i=0; i<4; i++) {
+            const angle = this.wheelRotation + (Math.PI / 2) * i;
+            ctx.beginPath();
+            ctx.moveTo(tx + 20, wheelY);
+            ctx.lineTo(tx + 20 + Math.cos(angle)*wheelRadius, wheelY + Math.sin(angle)*wheelRadius);
+            ctx.stroke();
+        }
+
+        // Right Wheel
+        ctx.beginPath();
+        ctx.arc(tx + this.width - 20, wheelY, wheelRadius, 0, Math.PI * 2);
+        ctx.fill();
+         // Spokes
+        for(let i=0; i<4; i++) {
+            const angle = this.wheelRotation + (Math.PI / 2) * i;
+            ctx.beginPath();
+            ctx.moveTo(tx + this.width - 20, wheelY);
+            ctx.lineTo(tx + this.width - 20 + Math.cos(angle)*wheelRadius, wheelY + Math.sin(angle)*wheelRadius);
+            ctx.stroke();
+        }
+
+        // Platform Base
+        ctx.fillStyle = COLORS.towerDark;
+        ctx.fillRect(tx - 10, ty + this.height - 40, this.width + 20, 10);
+
+        // Walls
+        ctx.fillStyle = COLORS.towerWood;
+        ctx.fillRect(tx, ty, this.width, this.height - 40);
+
+        // Wooden Planks Detail
+        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        ctx.lineWidth = 2;
+        for(let i=1; i<5; i++) {
+            ctx.beginPath();
+            ctx.moveTo(tx, ty + i * ((this.height-40)/5));
+            ctx.lineTo(tx + this.width, ty + i * ((this.height-40)/5));
+            ctx.stroke();
+        }
+
+        // Battlements (Teeth on top)
+        const toothW = 15;
+        const toothH = 15;
+        ctx.fillStyle = COLORS.towerWood;
+        for(let i=0; i<this.width/toothW; i++) {
+             if(i % 2 === 0) {
+                 ctx.fillRect(tx + i * toothW, ty - toothH, toothW, toothH);
+             }
+        }
+
+        // King Silhouette (Placeholder)
+        ctx.fillStyle = '#FFD700'; // Gold crown
+        ctx.beginPath();
+        ctx.moveTo(tx + this.width/2 - 15, ty - 20);
+        ctx.lineTo(tx + this.width/2 - 10, ty - 35);
+        ctx.lineTo(tx + this.width/2, ty - 25);
+        ctx.lineTo(tx + this.width/2 + 10, ty - 35);
+        ctx.lineTo(tx + this.width/2 + 15, ty - 20);
+        ctx.closePath();
+        ctx.fill();
+        
+        // King Body
+        ctx.fillStyle = '#800080'; // Purple robe
+        ctx.fillRect(tx + this.width/2 - 10, ty - 20, 20, 20);
+    }
+}
+
+// --- GAME LOGIC ---
+
+let layers = [];
+let zombies = [];
+let tower;
+let horse;
+let lastTime = 0;
+let spawnTimer = 0;
+
+function init() {
+    gameState.isRunning = true;
+    gameState.towerHP = 100;
+    gameState.gold = 0;
+    gameState.score = 0;
+    zombies = [];
+    
+    // Create Layers
+    layers = [
+        new BackgroundLayer('mountains', 0.2, 0), // Far mountains
+        new BackgroundLayer('mountains', 0.5, 0), // Near mountains
+        new BackgroundLayer('decor', 1.0, 0)      // Foreground cacti/rocks
+    ];
+
+    tower = new Tower();
+    horse = new Horse(-60); // Position relative to tower front
+    
+    updateUI();
+    requestAnimationFrame(gameLoop);
+}
+
+function resetGame() {
+    gameOverScreen.style.display = 'none';
+    init();
+}
+
+function spawnZombie() {
+    // Spawn from right edge
+    const z = new Zombie(width + 50, height - 100); // Y aligned with tower base roughly
+    zombies.push(z);
+}
+
+function updateUI() {
+    const hpPct = Math.max(0, (gameState.towerHP / gameState.maxTowerHP) * 100);
+    hpFill.style.width = `${hpPct}%`;
+    hpText.innerText = `${Math.round(hpPct)}%`;
+    goldText.innerText = gameState.gold;
+
+    if (gameState.towerHP <= 0) {
+        gameState.isRunning = false;
+        gameOverScreen.style.display = 'flex';
+    }
+}
+
+function drawSky() {
+    // Gradient Sunset
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, COLORS.skyTop);
+    gradient.addColorStop(0.4, COLORS.skyMid);
+    gradient.addColorStop(0.8, COLORS.skyBottom);
+    gradient.addColorStop(1, '#8B4513'); // Horizon fade to sand color
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+
+    // Sun
+    ctx.fillStyle = COLORS.sunColor;
+    ctx.shadowBlur = 50;
+    ctx.shadowColor = "#FFA500";
+    ctx.beginPath();
+    ctx.arc(width / 2, height * 0.4, 60, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0; // Reset shadow
+}
+
+function drawGround() {
+    // The flat desert floor where entities stand
+    const groundY = height - 100;
+    ctx.fillStyle = COLORS.ground;
+    ctx.fillRect(0, groundY, width, height - groundY);
+    
+    // Some texture lines
+    ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+    ctx.beginPath();
+    ctx.moveTo(0, groundY);
+    ctx.lineTo(width, groundY);
+    ctx.stroke();
+}
+
+function gameLoop(timestamp) {
+    if (!lastTime) lastTime = timestamp;
+    const deltaTime = timestamp - lastTime;
+    lastTime = timestamp;
+
+    if (!gameState.isRunning) return;
+
+    // Clear Screen
+    ctx.clearRect(0, 0, width, height);
+
+    // 1. Draw Sky
+    drawSky();
+
+    // Calculate movement amount based on speed
+    // In a real runner, speed might increase over time
+    const moveStep = gameState.speed * (deltaTime / 16); 
+
+    // 2. Update & Draw Background Layers (Parallax)
+    layers.forEach(layer => {
+        layer.update(moveStep);
+        // Determine Y position for drawing based on layer depth
+        // Simplified: all draw relative to horizon line calculated by height ratio
+        const horizonY = height * 0.6; 
+        layer.draw(ctx, horizonY);
+    });
+
+    // 3. Draw Ground Plane
+    drawGround();
+
+    // 4. Update & Draw Entities
+    // Tower stays centered horizontally logically, but we draw it fixed
+    tower.update(moveStep);
+    tower.draw(ctx);
+
+    // Horse runs next to tower
+    horse.update();
+    // Calculate horse position relative to tower
+    horse.draw(ctx, tower.x, tower.y + tower.height - 40); // Align feet with wheel axle area
+
+    // Zombies Logic
+    spawnTimer += deltaTime;
+    if (spawnTimer > 2000) { // Spawn every 2 seconds approx
+        spawnZombie();
+        spawnTimer = 0;
+    }
+
+    zombies.forEach((z, index) => {
+        z.update(tower.x, tower.width);
+        z.draw(ctx);
+        
+        // Remove dead zombies (logic for shooting not implemented yet, just passing through for now)
+        // If zombie goes way off left, remove
+        if (z.x < -100) {
+            zombies.splice(index, 1);
+        }
+    });
+
+    // Score counter (distance)
+    gameState.score += moveStep;
+
+    requestAnimationFrame(gameLoop);
+}
+
+// Start
+init();
+
+</script>
+</body>
+</html>
