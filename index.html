@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Siege of the Sun - Prototype</title>
+    <title>Siege of the Sun - V2 (Archers Added)</title>
     <style>
         body, html {
             margin: 0;
@@ -13,7 +13,7 @@
             overflow: hidden;
             background-color: #000;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            user-select: none; /* Запрет выделения текста */
+            user-select: none;
         }
 
         canvas {
@@ -27,7 +27,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            pointer-events: none; /* Клики проходят сквозь UI к канвасу, если нужно */
+            pointer-events: none;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
@@ -42,7 +42,7 @@
         }
 
         .stat-box {
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(0, 0, 0, 0.6);
             color: white;
             padding: 10px 20px;
             border-radius: 8px;
@@ -53,7 +53,7 @@
         }
 
         .hp-container {
-            width: 300px;
+            width: 200px;
             height: 20px;
             background: #333;
             border-radius: 10px;
@@ -68,14 +68,63 @@
             transition: width 0.2s ease-out;
         }
 
+        /* Bottom Shop Panel */
+        #shop-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 25px;
+            border-radius: 12px;
+            border: 2px solid #ffa500;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            pointer-events: auto; /* Allow clicks here */
+        }
+
+        .upgrade-btn {
+            background: #ffa500;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            color: #000;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 100px;
+        }
+
+        .upgrade-btn:hover:not(:disabled) {
+            background: #ffb733;
+            transform: translateY(-2px);
+        }
+
+        .upgrade-btn:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .btn-cost {
+            font-size: 12px;
+            margin-top: 4px;
+            color: #ffd700;
+        }
+
         #game-over-screen {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            display: none; /* Скрыто по умолчанию */
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
             flex-direction: column;
             justify-content: center;
             align-items: center;
@@ -108,47 +157,58 @@
             transform: scale(1.05);
             background: #ffb733;
         }
-
-        /* Инструкция */
-        #instructions {
+        
+        /* Floating Text Animation */
+        .floating-text {
             position: absolute;
-            bottom: 20px;
-            right: 20px;
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 14px;
-            text-align: right;
+            color: gold;
+            font-weight: bold;
+            pointer-events: none;
+            animation: floatUp 1s forwards;
+            text-shadow: 1px 1px 2px black;
+        }
+
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-30px); }
         }
     </style>
 </head>
 <body>
 
-    <!-- Игровой Канвас -->
     <canvas id="gameCanvas"></canvas>
 
-    <!-- Интерфейс -->
     <div id="ui-layer">
         <div class="top-bar">
             <div class="stat-box">HP: <span id="hp-text">100%</span></div>
             <div class="hp-container"><div id="hp-fill"></div></div>
             <div class="stat-box">Gold: <span id="gold-text">0</span></div>
-        </div>
-        <div id="instructions">
-            Зомби атакуют повозку.<br>Защити Короля!
+            <div class="stat-box">Wave: <span id="wave-text">1</span></div>
         </div>
     </div>
 
-    <!-- Экран поражения -->
+    <!-- Shop Interface -->
+    <div id="shop-panel">
+        <button class="upgrade-btn" id="btn-upgrade-dmg" onclick="buyUpgrade('damage')">
+            Upgrade Damage
+            <span class="btn-cost" id="cost-dmg">Cost: 50g</span>
+        </button>
+        <button class="upgrade-btn" id="btn-upgrade-speed" onclick="buyUpgrade('speed')">
+            Fire Rate
+            <span class="btn-cost" id="cost-spd">Cost: 50g</span>
+        </button>
+    </div>
+
     <div id="game-over-screen">
         <h1>Game Over</h1>
-        <p style="font-size: 1.5rem; margin-bottom: 30px;">Повозка разрушена...</p>
-        <button class="restart-btn" onclick="resetGame()">Начать заново</button>
+        <p style="font-size: 1.5rem; margin-bottom: 30px;">The King has fallen...</p>
+        <button class="restart-btn" onclick="resetGame()">Try Again</button>
     </div>
 
 <script>
 /**
- * SIEGE OF THE SUN - PROTOTYPE V1
- * Genre: Tower Defense Runner / Idle Siege
- * Tech: Vanilla JS + HTML5 Canvas
+ * SIEGE OF THE SUN - V2
+ * Features: Archers, Shooting, Gold Economy, Upgrades
  */
 
 const canvas = document.getElementById('gameCanvas');
@@ -158,214 +218,433 @@ const ctx = canvas.getContext('2d');
 const hpFill = document.getElementById('hp-fill');
 const hpText = document.getElementById('hp-text');
 const goldText = document.getElementById('gold-text');
+const waveText = document.getElementById('wave-text');
 const gameOverScreen = document.getElementById('game-over-screen');
+const btnDmg = document.getElementById('btn-upgrade-dmg');
+const btnSpd = document.getElementById('btn-upgrade-speed');
+const costDmgEl = document.getElementById('cost-dmg');
+const costSpdEl = document.getElementById('cost-spd');
 
-// Game State
+// Game Constants & State
+let width, height;
+let horizonY; // The main ground line
+
+const GAME_CONFIG = {
+    baseSpeed: 3,
+    zombieSpawnRate: 2000, // ms
+    arrowSpeed: 12,
+    archerRange: 400
+};
+
 let gameState = {
     isRunning: true,
-    score: 0, // Distance traveled
     gold: 0,
     towerHP: 100,
     maxTowerHP: 100,
-    speed: 2, // Base scroll speed
-    frameCount: 0
+    distance: 0,
+    frameCount: 0,
+    
+    // Stats for upgrades
+    damageLevel: 1,
+    fireRateLevel: 1,
+    damageBase: 10,
+    fireRateBase: 60, // frames between shots
+    
+    // Costs
+    costDamage: 50,
+    costFireRate: 50
 };
 
-// Dimensions
-let width, height;
+// Entities Arrays
+let zombies = [];
+let arrows = [];
+let particles = []; // For explosion effects/death animations
+let layers = [];
 
-function resize() {
-    width = window.innerWidth;
-    height = window.innerHeight;
-    canvas.width = width;
-    canvas.height = height;
-}
-window.addEventListener('resize', resize);
-resize();
+// Classes
 
-// --- ASSETS & DRAWING HELPERS ---
-
-// Colors
-const COLORS = {
-    skyTop: '#4a0e0e',       // Dark red/purple horizon start
-    skyMid: '#ff4500',       // Orange Red
-    skyBottom: '#ffd700',    // Gold/Yellow near sun
-    mountainFar: '#5c2e2e',  // Dark brownish purple
-    mountainNear: '#3e1f1f', // Even darker
-    ground: '#d2b48c',       // Sand/Tan
-    grass: '#8b4513',        // Dry scrub
-    towerWood: '#8B4513',    // Brown wood
-    towerDark: '#5D3A1F',    // Shadowed wood
-    zombieSkin: '#556B2F',   // Olive green
-    zombieCloth: '#2F4F4F',  // Dark slate gray
-    horseBody: '#3E2723',    // Dark brown
-    sunColor: '#FFFACD'      // Lemon Chiffon
-};
-
-// Helper to draw rounded rectangles
-function roundRect(ctx, x, y, w, h, r) {
-    if (w < 2 * r) r = w / 2;
-    if (h < 2 * r) r = h / 2;
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-    ctx.fill();
-}
-
-// --- CLASSES ---
-
-class BackgroundLayer {
-    constructor(type, speedMultiplier, yOffset) {
-        this.type = type; // 'mountains', 'ground', 'decor'
-        this.speedMult = speedMultiplier;
-        this.yOffset = yOffset; // Vertical position relative to horizon
-        this.items = [];
-        this.generateItems();
+class Particle {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 4;
+        this.vy = (Math.random() - 0.5) * 4;
+        this.life = 1.0;
+        this.decay = 0.05 + Math.random() * 0.05;
+        this.color = color;
+        this.size = 3 + Math.random() * 3;
     }
 
-    generateItems() {
-        const count = Math.ceil(width / 200) + 2; // Enough items to cover screen
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life -= this.decay;
+    }
+
+    draw(ctx) {
+        ctx.globalAlpha = this.life;
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+    }
+}
+
+class Arrow {
+    constructor(startX, startY, targetZombie) {
+        this.x = startX;
+        this.y = startY;
+        this.target = targetZombie;
+        this.speed = GAME_CONFIG.arrowSpeed;
+        this.active = true;
+        this.angle = 0;
+    }
+
+    update() {
+        if (!this.active || !this.target || this.target.dead) {
+            this.active = false;
+            return;
+        }
+
+        // Move towards target
+        const dx = this.target.x - this.x;
+        const dy = this.target.y - this.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
         
-        for (let i = 0; i < count; i++) {
-            let item = {};
+        this.angle = Math.atan2(dy, dx);
+
+        if (dist < this.speed) {
+            // Hit
+            this.active = false;
+            this.target.takeHit(gameState.damageBase * gameState.damageLevel);
             
-            if (this.type === 'mountains') {
-                item.x = i * (width / count) + Math.random() * 100;
-                item.w = 300 + Math.random() * 200;
-                item.h = 100 + Math.random() * 150;
-                item.color = this.speedMult < 0.5 ? COLORS.mountainFar : COLORS.mountainNear;
-            } else if (this.type === 'decor') {
-                // Cacti or Rocks
-                item.x = i * (width / count) + Math.random() * 50;
-                item.type = Math.random() > 0.7 ? 'rock' : 'cactus';
-                item.size = 20 + Math.random() * 30;
+            // Create hit particles
+            for(let i=0; i<5; i++) {
+                particles.push(new Particle(this.target.x, this.target.y, '#ffcc00'));
             }
-            
-            this.items.push(item);
+        } else {
+            this.x += (dx / dist) * this.speed;
+            this.y += (dy / dist) * this.speed;
         }
     }
 
-    update(deltaX) {
-        // Move items left based on game speed and layer multiplier
-        const moveAmount = deltaX * this.speedMult;
+    draw(ctx) {
+        if (!this.active) return;
         
-        this.items.forEach(item => {
-            item.x -= moveAmount;
-            
-            // Recycle items that go off screen
-            if (item.x + (item.w || item.size) < 0) {
-                item.x = width + Math.random() * 100;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.angle);
+        
+        // Draw Arrow Shaft
+        ctx.strokeStyle = '#8B4513';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-15, 0);
+        ctx.lineTo(10, 0);
+        ctx.stroke();
+
+        // Arrow Head
+        ctx.fillStyle = '#C0C0C0';
+        ctx.beginPath();
+        ctx.moveTo(10, 0);
+        ctx.lineTo(5, -4);
+        ctx.lineTo(5, 4);
+        ctx.closePath();
+        ctx.fill();
+
+        // Fletching
+        ctx.fillStyle = '#FF4500';
+        ctx.beginPath();
+        ctx.moveTo(-15, 0);
+        ctx.lineTo(-20, -3);
+        ctx.lineTo(-20, 3);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+    }
+}
+
+class Archer {
+    constructor(side, xOffset, yOffset) {
+        this.side = side; // 'left' or 'right'
+        this.xOffset = xOffset;
+        this.yOffset = yOffset;
+        this.cooldown = 0;
+        this.maxCooldown = 60; // Default frames
+        
+        // Position will be calculated relative to tower in draw/update
+        this.currentX = 0;
+        this.currentY = 0;
+    }
+
+    update(tower, deltaTime) {
+        // Calculate actual position based on tower
+        const tx = tower.x;
+        const ty = tower.y;
+        
+        if (this.side === 'left') {
+            this.currentX = tx - 10; // Just outside left wall
+            this.currentY = ty + this.yOffset;
+        } else {
+            this.currentX = tx + tower.width + 10; // Just outside right wall
+            this.currentY = ty + this.yOffset;
+        }
+
+        // Cooldown logic
+        if (this.cooldown > 0) {
+            this.cooldown--;
+        } else {
+            // Find nearest zombie within range
+            let closestZombie = null;
+            let minDist = Infinity;
+
+            for (let z of zombies) {
+                if (z.dead) continue;
                 
-                // Regenerate properties for variety
-                if (this.type === 'mountains') {
-                    item.w = 300 + Math.random() * 200;
-                    item.h = 100 + Math.random() * 150;
-                } else if (this.type === 'decor') {
-                    item.type = Math.random() > 0.7 ? 'rock' : 'cactus';
-                    item.size = 20 + Math.random() * 30;
+                // Only shoot at zombies coming from the correct side? 
+                // Or any zombie? Let's allow any for simplicity, but prioritize front.
+                const d = Math.hypot(z.x - this.currentX, z.y - this.currentY);
+                
+                if (d < GAME_CONFIG.archerRange && d < minDist) {
+                    minDist = d;
+                    closestZombie = z;
                 }
             }
-        });
+
+            if (closestZombie) {
+                this.shoot(closestZombie);
+                this.cooldown = this.getFireRate();
+            }
+        }
     }
 
-    draw(ctx, horizonY) {
-        if (this.type === 'mountains') {
-            ctx.fillStyle = this.items[0].color; // Assume same color for simplicity in batch
-            this.items.forEach(item => {
-                // Draw simple triangle/mound shape
-                ctx.beginPath();
-                ctx.moveTo(item.x, horizonY);
-                ctx.lineTo(item.x + item.w / 2, horizonY - item.h);
-                ctx.lineTo(item.x + item.w, horizonY);
-                ctx.fill();
-            });
-        } else if (this.type === 'decor') {
-            this.items.forEach(item => {
-                if (item.type === 'cactus') {
-                    ctx.fillStyle = '#2E8B57'; // Sea Green
-                    // Main stem
-                    ctx.fillRect(item.x, horizonY - item.size, item.size/3, item.size);
-                    // Arms
-                    ctx.fillRect(item.x - item.size/3, horizonY - item.size*0.6, item.size/3, item.size/2);
-                    ctx.fillRect(item.x + item.size/3, horizonY - item.size*0.7, item.size/3, item.size/2);
-                } else {
-                    ctx.fillStyle = '#696969'; // Dim Gray
-                    ctx.beginPath();
-                    ctx.arc(item.x + item.size/2, horizonY - item.size/4, item.size/2, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            });
+    getFireRate() {
+        // Higher level = lower cooldown
+        return Math.max(10, GAME_CONFIG.fireRateBase - (gameState.fireRateLevel * 5));
+    }
+
+    shoot(target) {
+        arrows.push(new Arrow(this.currentX, this.currentY, target));
+    }
+
+    draw(ctx) {
+        // Draw simple archer figure
+        ctx.fillStyle = '#2F4F4F'; // Armor
+        ctx.fillRect(this.currentX - 5, this.currentY - 15, 10, 15);
+        
+        // Head
+        ctx.fillStyle = '#DEB887'; // Skin
+        ctx.beginPath();
+        ctx.arc(this.currentX, this.currentY - 20, 5, 0, Math.PI*2);
+        ctx.fill();
+
+        // Bow (simple arc)
+        ctx.strokeStyle = '#8B4513';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (this.side === 'left') {
+             ctx.arc(this.currentX + 5, this.currentY - 10, 8, Math.PI/2, Math.PI*1.5);
+        } else {
+             ctx.arc(this.currentX - 5, this.currentY - 10, 8, Math.PI*1.5, Math.PI/2);
         }
+        ctx.stroke();
     }
 }
 
 class Zombie {
-    constructor(startX, startY) {
+    constructor(startX, startY, type = 'normal') {
         this.x = startX;
         this.y = startY;
         this.width = 30;
         this.height = 50;
-        this.speed = 1.5 + Math.random() * 1.5; // Random walk speed
-        this.hp = 10;
-        this.maxHp = 10;
-        this.animFrame = 0;
+        this.type = type;
+        
+        // Stats based on type
+        if (type === 'fast') {
+            this.speed = 2.5 + Math.random();
+            this.hp = 15;
+            this.colorBody = '#8A2BE2'; // Purple
+            this.goldValue = 10;
+        } else if (type === 'tank') {
+            this.speed = 0.8;
+            this.hp = 50;
+            this.width = 45;
+            this.height = 60;
+            this.colorBody = '#CD5C5C'; // Reddish
+            this.goldValue = 25;
+        } else {
+            // Normal
+            this.speed = 1.2 + Math.random() * 0.8;
+            this.hp = 20;
+            this.colorBody = '#556B2F'; // Olive
+            this.goldValue = 5;
+        }
+
+        this.maxHp = this.hp;
         this.dead = false;
-        this.goldDrop = 5 + Math.floor(Math.random() * 5);
+        this.animFrame = 0;
     }
 
-    update(towerX, towerWidth) {
+    takeHit(damage) {
+        this.hp -= damage;
+        if (this.hp <= 0) {
+            this.die();
+        }
+    }
+
+    die() {
+        this.dead = true;
+        gameState.gold += this.goldValue;
+        updateUI();
+        
+        // Death effect
+        createFloatingText(`+${this.goldValue}g`, this.x, this.y - 20);
+        for(let i=0; i<10; i++) {
+            particles.push(new Particle(this.x + this.width/2, this.y - this.height/2, this.colorBody));
+        }
+    }
+
+    update(towerLeftEdge, towerRightEdge) {
         if (this.dead) return;
 
-        // Move towards tower
         this.x -= this.speed;
+        this.animFrame++;
 
-        // Check collision with tower
-        // Tower is roughly centered horizontally in our logic later, 
-        // but here we assume tower occupies a zone [towerLeft, towerRight]
-        // For prototype, let's say tower hits when zombie reaches specific X
-        
-        // Simple hitbox check against a vertical line representing the wall
-        if (this.x <= towerX && !this.dead) {
-            // Attack animation could go here
-            // Deal damage to tower
-            gameState.towerHP -= 1; // Small chip damage per tick/contact
+        // Collision with Tower
+        // If zombie overlaps tower horizontally and vertically
+        if (this.x + this.width >= towerLeftEdge && this.x <= towerRightEdge) {
+            // Attack tower
+            gameState.towerHP -= 0.2; // Chip damage per frame contact
             updateUI();
             
-            // Push back slightly so they don't stack instantly inside
-            this.x += 5; 
+            // Push back slightly to prevent instant death loop visuals
+            this.x += this.speed * 0.5; 
             
-            // Visual feedback: flash red?
+            if (gameState.towerHP <= 0) {
+                endGame();
+            }
         }
     }
 
     draw(ctx) {
         if (this.dead) return;
 
+        const bob = Math.sin(this.animFrame * 0.2) * 2;
+
         // Body
-        ctx.fillStyle = COLORS.zombieCloth;
-        ctx.fillRect(this.x, this.y - this.height, this.width, this.height);
+        ctx.fillStyle = this.colorBody;
+        ctx.fillRect(this.x, this.y - this.height + bob, this.width, this.height);
 
         // Head
-        ctx.fillStyle = COLORS.zombieSkin;
+        ctx.fillStyle = '#DEB887'; // Pale skin
         ctx.beginPath();
-        ctx.arc(this.x + this.width/2, this.y - this.height - 10, 12, 0, Math.PI*2);
+        ctx.arc(this.x + this.width/2, this.y - this.height - 10 + bob, 12, 0, Math.PI*2);
         ctx.fill();
 
-        // Eyes (angry)
+        // Eyes
         ctx.fillStyle = 'red';
-        ctx.fillRect(this.x + 8, this.y - this.height - 15, 4, 4);
-        ctx.fillRect(this.x + 18, this.y - this.height - 15, 4, 4);
+        ctx.fillRect(this.x + 8, this.y - this.height - 15 + bob, 4, 4);
+        ctx.fillRect(this.x + 18, this.y - this.height - 15 + bob, 4, 4);
 
-        // Health bar above head
-        const hpPercent = this.hp / this.maxHp;
+        // Health Bar
+        const hpPct = this.hp / this.maxHp;
         ctx.fillStyle = 'black';
-        ctx.fillRect(this.x, this.y - this.height - 25, this.width, 4);
-        ctx.fillStyle = 'green';
-        ctx.fillRect(this.x, this.y - this.height - 25, this.width * hpPercent, 4);
+        ctx.fillRect(this.x, this.y - this.height - 25 + bob, this.width, 4);
+        ctx.fillStyle = hpPct > 0.5 ? 'lime' : (hpPct > 0.2 ? 'orange' : 'red');
+        ctx.fillRect(this.x, this.y - this.height - 25 + bob, this.width * hpPct, 4);
+    }
+}
+
+class Tower {
+    constructor() {
+        this.width = 120;
+        this.height = 180;
+        this.wheelRotation = 0;
+        this.archers = [
+            new Archer('left', -10, 40),
+            new Archer('left', -10, 100),
+            new Archer('right', 10, 40),
+            new Archer('right', 10, 100)
+        ];
+    }
+
+    update(scrollSpeed) {
+        this.wheelRotation += scrollSpeed * 0.1;
+        
+        // Update Archers
+        this.archers.forEach(a => a.update(this, 1));
+    }
+
+    draw(ctx) {
+        const tx = this.x;
+        const ty = this.y;
+
+        // Wheels
+        ctx.fillStyle = '#333';
+        const wheelRadius = 25;
+        const wheelY = ty + this.height - 10;
+        
+        [-20, this.width - 20].forEach(offsetX => {
+            ctx.beginPath();
+            ctx.arc(tx + offsetX, wheelY, wheelRadius, 0, Math.PI * 2);
+            ctx.fill();
+            // Spokes
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 3;
+            for(let i=0; i<4; i++) {
+                const angle = this.wheelRotation + (Math.PI / 2) * i;
+                ctx.beginPath();
+                ctx.moveTo(tx + offsetX, wheelY);
+                ctx.lineTo(tx + offsetX + Math.cos(angle)*wheelRadius, wheelY + Math.sin(angle)*wheelRadius);
+                ctx.stroke();
+            }
+        });
+
+        // Platform Base
+        ctx.fillStyle = COLORS.towerDark;
+        ctx.fillRect(tx - 10, ty + this.height - 40, this.width + 20, 10);
+
+        // Walls
+        ctx.fillStyle = COLORS.towerWood;
+        ctx.fillRect(tx, ty, this.width, this.height - 40);
+
+        // Planks
+        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        ctx.lineWidth = 2;
+        for(let i=1; i<5; i++) {
+            ctx.beginPath();
+            ctx.moveTo(tx, ty + i * ((this.height-40)/5));
+            ctx.lineTo(tx + this.width, ty + i * ((this.height-40)/5));
+            ctx.stroke();
+        }
+
+        // Battlements
+        const toothW = 15;
+        const toothH = 15;
+        ctx.fillStyle = COLORS.towerWood;
+        for(let i=0; i<this.width/toothW; i++) {
+             if(i % 2 === 0) {
+                 ctx.fillRect(tx + i * toothW, ty - toothH, toothW, toothH);
+             }
+        }
+
+        // King
+        ctx.fillStyle = '#FFD700';
+        ctx.beginPath();
+        ctx.moveTo(tx + this.width/2 - 15, ty - 20);
+        ctx.lineTo(tx + this.width/2 - 10, ty - 35);
+        ctx.lineTo(tx + this.width/2, ty - 25);
+        ctx.lineTo(tx + this.width/2 + 10, ty - 35);
+        ctx.lineTo(tx + this.width/2 + 15, ty - 20);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#800080';
+        ctx.fillRect(tx + this.width/2 - 10, ty - 20, 20, 20);
+
+        // Draw Archers
+        this.archers.forEach(a => a.draw(ctx));
     }
 }
 
@@ -380,7 +659,6 @@ class Horse {
     }
 
     draw(ctx, baseX, baseY) {
-        // Simple stick-figure-ish horse silhouette running
         const legSwing = Math.sin(this.frame * 0.2) * 10;
         const bobbing = Math.abs(Math.cos(this.frame * 0.2)) * 5;
 
@@ -394,26 +672,24 @@ class Horse {
         ctx.ellipse(0, -20, 40, 20, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Legs (animated)
+        // Legs
         ctx.strokeStyle = COLORS.horseBody;
         ctx.lineWidth = 6;
         ctx.lineCap = 'round';
         
-        // Front Left
-        ctx.beginPath(); ctx.moveTo(-20, -10); ctx.lineTo(-25 + legSwing, 20); ctx.stroke();
-        // Front Right
-        ctx.beginPath(); ctx.moveTo(-10, -10); ctx.lineTo(-5 - legSwing, 20); ctx.stroke();
-        // Back Left
-        ctx.beginPath(); ctx.moveTo(20, -10); ctx.lineTo(15 - legSwing, 20); ctx.stroke();
-        // Back Right
-        ctx.beginPath(); ctx.moveTo(30, -10); ctx.lineTo(35 + legSwing, 20); ctx.stroke();
+        [[-20, -10, -25], [-10, -10, -5], [20, -10, 15], [30, -10, 35]].forEach(([sx, sy, ex]) => {
+             ctx.beginPath(); 
+             ctx.moveTo(sx, sy); 
+             ctx.lineTo(ex + (ex < 0 ? legSwing : -legSwing), 20); 
+             ctx.stroke();
+        });
 
         // Neck & Head
         ctx.beginPath();
         ctx.moveTo(-30, -20);
-        ctx.quadraticCurveTo(-50, -40, -60, -30); // Neck curve
-        ctx.lineTo(-70, -20); // Nose
-        ctx.lineTo(-60, -10); // Jaw
+        ctx.quadraticCurveTo(-50, -40, -60, -30);
+        ctx.lineTo(-70, -20);
+        ctx.lineTo(-60, -10);
         ctx.closePath();
         ctx.fill();
 
@@ -427,141 +703,159 @@ class Horse {
     }
 }
 
-class Tower {
-    constructor() {
-        this.width = 120;
-        this.height = 180;
-        this.x = width / 2 - this.width / 2; // Centered initially
-        this.y = height - 100; // Ground level approximation
-        this.wheelRotation = 0;
+// Background Layers Class (Reused from V1 with fixes)
+class BackgroundLayer {
+    constructor(type, speedMultiplier) {
+        this.type = type;
+        this.speedMult = speedMultiplier;
+        this.items = [];
+        this.generateItems();
     }
 
-    update(scrollSpeed) {
-        // Keep tower visually stationary while world moves
-        // But wheels rotate based on speed
-        this.wheelRotation += scrollSpeed * 0.1;
+    generateItems() {
+        const count = Math.ceil(width / 200) + 2;
+        for (let i = 0; i < count; i++) {
+            let item = {};
+            if (this.type === 'mountains') {
+                item.x = i * (width / count) + Math.random() * 100;
+                item.w = 300 + Math.random() * 200;
+                item.h = 100 + Math.random() * 150;
+                item.color = this.speedMult < 0.5 ? COLORS.mountainFar : COLORS.mountainNear;
+            } else if (this.type === 'decor') {
+                item.x = i * (width / count) + Math.random() * 50;
+                item.type = Math.random() > 0.7 ? 'rock' : 'cactus';
+                item.size = 20 + Math.random() * 30;
+            }
+            this.items.push(item);
+        }
+    }
+
+    update(deltaX) {
+        const moveAmount = deltaX * this.speedMult;
+        this.items.forEach(item => {
+            item.x -= moveAmount;
+            if (item.x + (item.w || item.size) < 0) {
+                item.x = width + Math.random() * 100;
+                if (this.type === 'mountains') {
+                    item.w = 300 + Math.random() * 200;
+                    item.h = 100 + Math.random() * 150;
+                } else if (this.type === 'decor') {
+                    item.type = Math.random() > 0.7 ? 'rock' : 'cactus';
+                    item.size = 20 + Math.random() * 30;
+                }
+            }
+        });
     }
 
     draw(ctx) {
-        const tx = this.x;
-        const ty = this.y;
-
-        // Wheels
-        ctx.fillStyle = '#333';
-        const wheelRadius = 25;
-        const wheelY = ty + this.height - 10;
-        
-        // Left Wheel
-        ctx.beginPath();
-        ctx.arc(tx + 20, wheelY, wheelRadius, 0, Math.PI * 2);
-        ctx.fill();
-        // Spokes
-        ctx.strokeStyle = '#555';
-        ctx.lineWidth = 3;
-        for(let i=0; i<4; i++) {
-            const angle = this.wheelRotation + (Math.PI / 2) * i;
-            ctx.beginPath();
-            ctx.moveTo(tx + 20, wheelY);
-            ctx.lineTo(tx + 20 + Math.cos(angle)*wheelRadius, wheelY + Math.sin(angle)*wheelRadius);
-            ctx.stroke();
+        if (this.type === 'mountains') {
+            ctx.fillStyle = this.items[0].color;
+            this.items.forEach(item => {
+                ctx.beginPath();
+                ctx.moveTo(item.x, horizonY);
+                ctx.lineTo(item.x + item.w / 2, horizonY - item.h);
+                ctx.lineTo(item.x + item.w, horizonY);
+                ctx.fill();
+            });
+        } else if (this.type === 'decor') {
+            this.items.forEach(item => {
+                if (item.type === 'cactus') {
+                    ctx.fillStyle = '#2E8B57';
+                    ctx.fillRect(item.x, horizonY - item.size, item.size/3, item.size);
+                    ctx.fillRect(item.x - item.size/3, horizonY - item.size*0.6, item.size/3, item.size/2);
+                    ctx.fillRect(item.x + item.size/3, horizonY - item.size*0.7, item.size/3, item.size/2);
+                } else {
+                    ctx.fillStyle = '#696969';
+                    ctx.beginPath();
+                    ctx.arc(item.x + item.size/2, horizonY - item.size/4, item.size/2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
         }
-
-        // Right Wheel
-        ctx.beginPath();
-        ctx.arc(tx + this.width - 20, wheelY, wheelRadius, 0, Math.PI * 2);
-        ctx.fill();
-         // Spokes
-        for(let i=0; i<4; i++) {
-            const angle = this.wheelRotation + (Math.PI / 2) * i;
-            ctx.beginPath();
-            ctx.moveTo(tx + this.width - 20, wheelY);
-            ctx.lineTo(tx + this.width - 20 + Math.cos(angle)*wheelRadius, wheelY + Math.sin(angle)*wheelRadius);
-            ctx.stroke();
-        }
-
-        // Platform Base
-        ctx.fillStyle = COLORS.towerDark;
-        ctx.fillRect(tx - 10, ty + this.height - 40, this.width + 20, 10);
-
-        // Walls
-        ctx.fillStyle = COLORS.towerWood;
-        ctx.fillRect(tx, ty, this.width, this.height - 40);
-
-        // Wooden Planks Detail
-        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-        ctx.lineWidth = 2;
-        for(let i=1; i<5; i++) {
-            ctx.beginPath();
-            ctx.moveTo(tx, ty + i * ((this.height-40)/5));
-            ctx.lineTo(tx + this.width, ty + i * ((this.height-40)/5));
-            ctx.stroke();
-        }
-
-        // Battlements (Teeth on top)
-        const toothW = 15;
-        const toothH = 15;
-        ctx.fillStyle = COLORS.towerWood;
-        for(let i=0; i<this.width/toothW; i++) {
-             if(i % 2 === 0) {
-                 ctx.fillRect(tx + i * toothW, ty - toothH, toothW, toothH);
-             }
-        }
-
-        // King Silhouette (Placeholder)
-        ctx.fillStyle = '#FFD700'; // Gold crown
-        ctx.beginPath();
-        ctx.moveTo(tx + this.width/2 - 15, ty - 20);
-        ctx.lineTo(tx + this.width/2 - 10, ty - 35);
-        ctx.lineTo(tx + this.width/2, ty - 25);
-        ctx.lineTo(tx + this.width/2 + 10, ty - 35);
-        ctx.lineTo(tx + this.width/2 + 15, ty - 20);
-        ctx.closePath();
-        ctx.fill();
-        
-        // King Body
-        ctx.fillStyle = '#800080'; // Purple robe
-        ctx.fillRect(tx + this.width/2 - 10, ty - 20, 20, 20);
     }
 }
 
-// --- GAME LOGIC ---
-
-let layers = [];
-let zombies = [];
+// Global Variables
 let tower;
 let horse;
 let lastTime = 0;
 let spawnTimer = 0;
+let waveNumber = 1;
+
+const COLORS = {
+    skyTop: '#4a0e0e',       
+    skyMid: '#ff4500',       
+    skyBottom: '#ffd700',    
+    mountainFar: '#5c2e2e',  
+    mountainNear: '#3e1f1f', 
+    ground: '#d2b48c',       
+    towerWood: '#8B4513',    
+    towerDark: '#5D3A1F',    
+    horseBody: '#3E2723',    
+    sunColor: '#FFFACD'      
+};
+
+function resize() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+    horizonY = height * 0.6; // Define horizon clearly
+    
+    // Re-center tower if needed
+    if (tower) {
+        tower.x = width / 2 - tower.width / 2;
+        tower.y = horizonY - tower.height + 40; // Adjust so wheels touch ground roughly
+    }
+}
 
 function init() {
+    resize();
+    window.addEventListener('resize', resize);
+    
     gameState.isRunning = true;
     gameState.towerHP = 100;
     gameState.gold = 0;
-    gameState.score = 0;
-    zombies = [];
+    gameState.distance = 0;
+    gameState.damageLevel = 1;
+    gameState.fireRateLevel = 1;
+    gameState.costDamage = 50;
+    gameState.costFireRate = 50;
     
-    // Create Layers
+    zombies = [];
+    arrows = [];
+    particles = [];
+    
     layers = [
-        new BackgroundLayer('mountains', 0.2, 0), // Far mountains
-        new BackgroundLayer('mountains', 0.5, 0), // Near mountains
-        new BackgroundLayer('decor', 1.0, 0)      // Foreground cacti/rocks
+        new BackgroundLayer('mountains', 0.2),
+        new BackgroundLayer('mountains', 0.5),
+        new BackgroundLayer('decor', 1.0)
     ];
 
     tower = new Tower();
-    horse = new Horse(-60); // Position relative to tower front
+    tower.x = width / 2 - tower.width / 2;
+    tower.y = horizonY - tower.height + 40; 
+    
+    horse = new Horse(-60);
     
     updateUI();
+    gameOverScreen.style.display = 'none';
     requestAnimationFrame(gameLoop);
 }
 
 function resetGame() {
-    gameOverScreen.style.display = 'none';
     init();
 }
 
 function spawnZombie() {
-    // Spawn from right edge
-    const z = new Zombie(width + 50, height - 100); // Y aligned with tower base roughly
+    // Determine type based on randomness/wave
+    const rand = Math.random();
+    let type = 'normal';
+    if (rand > 0.8) type = 'fast';
+    if (rand > 0.95) type = 'tank';
+    
+    // Spawn Y is fixed at horizon level minus some offset for feet
+    const z = new Zombie(width + 50, horizonY, type);
     zombies.push(z);
 }
 
@@ -570,20 +864,54 @@ function updateUI() {
     hpFill.style.width = `${hpPct}%`;
     hpText.innerText = `${Math.round(hpPct)}%`;
     goldText.innerText = gameState.gold;
+    waveText.innerText = waveNumber;
 
-    if (gameState.towerHP <= 0) {
-        gameState.isRunning = false;
-        gameOverScreen.style.display = 'flex';
+    // Update Buttons
+    btnDmg.disabled = gameState.gold < gameState.costDamage;
+    btnSpd.disabled = gameState.gold < gameState.costFireRate;
+    costDmgEl.innerText = `Cost: ${gameState.costDamage}g`;
+    costSpdEl.innerText = `Cost: ${gameState.costFireRate}g`;
+}
+
+function buyUpgrade(type) {
+    if (type === 'damage') {
+        if (gameState.gold >= gameState.costDamage) {
+            gameState.gold -= gameState.costDamage;
+            gameState.damageLevel++;
+            gameState.costDamage = Math.floor(gameState.costDamage * 1.5);
+            updateUI();
+        }
+    } else if (type === 'speed') {
+        if (gameState.gold >= gameState.costFireRate) {
+            gameState.gold -= gameState.costFireRate;
+            gameState.fireRateLevel++;
+            gameState.costFireRate = Math.floor(gameState.costFireRate * 1.5);
+            updateUI();
+        }
     }
 }
 
+function createFloatingText(text, x, y) {
+    const el = document.createElement('div');
+    el.className = 'floating-text';
+    el.innerText = text;
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 1000);
+}
+
+function endGame() {
+    gameState.isRunning = false;
+    gameOverScreen.style.display = 'flex';
+}
+
 function drawSky() {
-    // Gradient Sunset
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
     gradient.addColorStop(0, COLORS.skyTop);
     gradient.addColorStop(0.4, COLORS.skyMid);
     gradient.addColorStop(0.8, COLORS.skyBottom);
-    gradient.addColorStop(1, '#8B4513'); // Horizon fade to sand color
+    gradient.addColorStop(1, '#8B4513');
     
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
@@ -593,22 +921,21 @@ function drawSky() {
     ctx.shadowBlur = 50;
     ctx.shadowColor = "#FFA500";
     ctx.beginPath();
-    ctx.arc(width / 2, height * 0.4, 60, 0, Math.PI * 2);
+    ctx.arc(width / 2, horizonY - 100, 60, 0, Math.PI * 2);
     ctx.fill();
-    ctx.shadowBlur = 0; // Reset shadow
+    ctx.shadowBlur = 0;
 }
 
 function drawGround() {
-    // The flat desert floor where entities stand
-    const groundY = height - 100;
     ctx.fillStyle = COLORS.ground;
-    ctx.fillRect(0, groundY, width, height - groundY);
+    ctx.fillRect(0, horizonY, width, height - horizonY);
     
-    // Some texture lines
-    ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+    // Road texture hint
+    ctx.strokeStyle = 'rgba(0,0,0,0.05)';
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(0, groundY);
-    ctx.lineTo(width, groundY);
+    ctx.moveTo(0, horizonY + 20);
+    ctx.lineTo(width, horizonY + 20);
     ctx.stroke();
 }
 
@@ -619,58 +946,74 @@ function gameLoop(timestamp) {
 
     if (!gameState.isRunning) return;
 
-    // Clear Screen
     ctx.clearRect(0, 0, width, height);
 
-    // 1. Draw Sky
+    // 1. Sky
     drawSky();
 
-    // Calculate movement amount based on speed
-    // In a real runner, speed might increase over time
-    const moveStep = gameState.speed * (deltaTime / 16); 
+    // Movement calculation
+    const moveStep = GAME_CONFIG.baseSpeed * (deltaTime / 16);
+    gameState.distance += moveStep;
+    
+    // Increase difficulty slowly
+    if (gameState.distance > 1000 * waveNumber) {
+        waveNumber++;
+        GAME_CONFIG.zombieSpawnRate = Math.max(500, 2000 - (waveNumber * 100));
+    }
 
-    // 2. Update & Draw Background Layers (Parallax)
+    // 2. Background Parallax
     layers.forEach(layer => {
         layer.update(moveStep);
-        // Determine Y position for drawing based on layer depth
-        // Simplified: all draw relative to horizon line calculated by height ratio
-        const horizonY = height * 0.6; 
-        layer.draw(ctx, horizonY);
+        layer.draw(ctx);
     });
 
-    // 3. Draw Ground Plane
+    // 3. Ground
     drawGround();
 
-    // 4. Update & Draw Entities
-    // Tower stays centered horizontally logically, but we draw it fixed
+    // 4. Entities
     tower.update(moveStep);
     tower.draw(ctx);
 
-    // Horse runs next to tower
     horse.update();
-    // Calculate horse position relative to tower
-    horse.draw(ctx, tower.x, tower.y + tower.height - 40); // Align feet with wheel axle area
+    horse.draw(ctx, tower.x, tower.y + tower.height - 40);
 
-    // Zombies Logic
+    // Zombies
     spawnTimer += deltaTime;
-    if (spawnTimer > 2000) { // Spawn every 2 seconds approx
+    if (spawnTimer > GAME_CONFIG.zombieSpawnRate) {
         spawnZombie();
         spawnTimer = 0;
     }
 
     zombies.forEach((z, index) => {
-        z.update(tower.x, tower.width);
+        z.update(tower.x, tower.x + tower.width);
         z.draw(ctx);
         
-        // Remove dead zombies (logic for shooting not implemented yet, just passing through for now)
-        // If zombie goes way off left, remove
-        if (z.x < -100) {
+        // Cleanup dead/offscreen
+        if (z.x < -100 || z.dead) {
+            if(z.dead) {
+               // Already handled in die()
+            }
             zombies.splice(index, 1);
         }
     });
 
-    // Score counter (distance)
-    gameState.score += moveStep;
+    // Arrows
+    arrows.forEach((a, index) => {
+        a.update();
+        a.draw(ctx);
+        if (!a.active) {
+            arrows.splice(index, 1);
+        }
+    });
+
+    // Particles
+    particles.forEach((p, index) => {
+        p.update();
+        p.draw(ctx);
+        if (p.life <= 0) {
+            particles.splice(index, 1);
+        }
+    });
 
     requestAnimationFrame(gameLoop);
 }
